@@ -1,0 +1,308 @@
+library(dplyr) # for "glimpse"
+library(ggplot2)
+library(scales) # for "comma"
+library(magrittr)
+library(gstat)
+library(plyr)
+library (raster)
+library(spatialEco)
+library(GISTools)
+library(iNEXT)
+library(RColorBrewer)
+library(vegan)
+library(colorspace)
+require(gridExtra)
+library(plotrix)
+library(tidyr)
+library(rgdal)
+library(maptools)
+library(rgeos)
+library(reshape2)
+albers<-CRS("+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=37.5 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m +no_defs")
+wgs84<-CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0 ")
+mammal<-readShapePoly("D:/Memoria_Sebas/GIS_DATA_SEP_2016/TERRESTRIAL_MAMMALS/TERRESTRIAL_MAMMALS.shp" ,proj4string = wgs84)
+setwd("D:/Memoria_Sebas/GIS_DATA_SEP_2016/WorldClim")
+bios<-list.files("D:/Memoria_Sebas/GIS_DATA_SEP_2016/WorldClim",pattern=".tif$")[c(1,4,14,7)]
+bios<-stack(bios)
+
+
+list.files("C:/Users/seboc/Box/Parasite_S_gradients_NA/DataAnalysis/SIG/")
+EA1<-readShapePoly("C:/Users/seboc/Box/Parasite_S_gradients_NA/TNC_ecoregions_NA.shp",proj4string = wgs84)
+EA3<-spTransform(EA1,albers)
+
+plot(EA3)
+
+
+
+x<-read.csv("C:/Users/seboc/Box/Parasite_S_gradients_NA/Final_Parasite_Database_SLG_namesSep2022.csv")
+x<-separate(x,"Parasite_binomial_stadardized_slg", sep=" ", into =c("S_P_Genus","S_P_Species"),remove = F)
+x<-separate(x,"Corrected_Host_name", sep=" ", into =c("Host_Genus1","Host_Species1"),remove = F)
+
+#correct_genus<-x$Host_Genus1[! x$Host_Genus1 %in% mammal@data$genus]
+
+
+occ1<-SpatialPoints(x[,c(38,37)],proj4string = CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0 ")) 
+coord<-SpatialPointsDataFrame(occ1, x)
+coord1<-spTransform(coord,albers)
+
+
+plot(coord1, add=T, col="red")
+
+He<-coord1[coord1$Phylum_parasite %in% c("Nemata","Platyhelminthes","Acanthocephala" ),]
+dim(He)
+##records <-poly.counts(coord1,EA3)
+ecoregions1<-EA3
+
+ecoregions1@data$N<-NA
+ecoregions1@data$Host_S<-NA
+ecoregions1@data$N_uniqueTax<-NA
+ecoregions1@data$Host_S_UniqueTax<-NA
+ecoregions1@data$observed<-NA
+ecoregions1@data$Rarified200<-NA
+ecoregions1@data$Rarified200_Lower<-NA
+ecoregions1@data$Rarified200_Uper<-NA
+ecoregions1@data$Rar90SP<-NA
+ecoregions1@data$Rar90SP_Low<-NA
+ecoregions1@data$Rar90SP_Up<-NA
+ecoregions1@data$estimator_asym<-NA
+ecoregions1@data$asym_s.e.<-NA
+ecoregions1@data$asym_Lower<-NA
+ecoregions1@data$asym_Uper<-NA
+ecoregions1@data$SampleCoverage<-NA
+ecoregions1@data$Ntest<-NA
+ecoregions1@data$Lat<-NA
+ecoregions1@data$Lon<-NA
+ecoregions1@data$HostS<-NA
+ecoregions1@data$Temperature<-NA
+ecoregions1@data$Precipitation<-NA
+ecoregions1@data$TemperatureSeasonality<-NA
+ecoregions1@data$PrecipitationSeasonality<-NA
+ecoregions1@data$PrecipitationSeasonality<-NA
+ecoregions1@data$EcoRegionArea<-NA
+ecoregions1@data$H.S.Cov<-NA  ### Host sample coverage
+
+ecoregions.data.parasite<-list(NULL)
+ecoregions.data.SampHost<-list(NULL)
+ecoregions.data.Hostsp<-list(NULL)
+
+i<-55
+for (i in 1:length(ecoregions1)){
+  a<-He[ecoregions1[i,],]
+  if(length(a)<50){next}
+  awgs84<-spTransform(ecoregions1[i,],wgs84)
+  b<-a@data
+  
+  
+  ecoregions1@data$EcoRegionArea[i]<-gArea(ecoregions1[i,])/1000000
+  ecoregions1@data$N[i]<-length(b[,1])
+  ecoregions1@data$Host_S[i]<-length(unique(b$Corrected_Host_name))
+  
+  
+  speciesdata<- b[!is.na(b$S_P_Species),]
+  genus<- b[which(is.na(b$S_P_Species)),]
+  genussp<-unique(speciesdata$S_P_Genus)
+  uniquegenus<-genus[!genus$S_P_Genus %in%genussp,]
+  
+  b<-rbind(speciesdata,uniquegenus)
+  
+  ecoregions1@data$N_uniqueTax[i]<-length(b[,1])
+  ecoregions1@data$Host_S_UniqueTax[i]<-length(unique(b$Corrected_Host_name))
+  
+  samp=table(b$Parasite_binomial_stadardized_slg)
+  
+  
+  
+ ecoregions.data.parasite[[as.character(ecoregions1[i,]@data$ECO_NAME)]]<-samp
+ ecoregions.data.SampHost[[as.character(ecoregions1[i,]@data$ECO_NAME)]]<-table(b$Corrected_Host_name)
+ out <- iNEXT(as.vector(samp), q=0, datatype="abundance",size=c(100,200,300,400,500))
+  
+  ecoregions1@data$observed[i]<-out$DataInfo$S.obs
+  ecoregions1@data$SampleCoverage[i]<-out$DataInfo$SC
+  ecoregions1@data$Ntest[i]<-out$DataInfo$n
+  
+  
+  
+  ecoregions1@data$Rarified200[i]<-out$iNextEst$qD[out$iNextEst$m==200]
+  ecoregions1@data$Rarified200_Lower[i]<-out$iNextEst$qD.LCL[out$iNextEst$m==200]
+  ecoregions1@data$Rarified200_Uper[i]<-out$iNextEst$qD.UCL[out$iNextEst$m==200]
+  
+  ecoregions1@data$estimator_asym[i]<-out$AsyEst[1,"Estimator"]
+  ecoregions1@data$asym_s.e.[i]<-out$AsyEst[1,"Est_s.e."]
+  ecoregions1@data$asym_Lower[i]<-out$AsyEst[1,"95% Lower"]
+  ecoregions1@data$asym_Uper[i]<-out$AsyEst[1,"95% Upper"]
+  
+  ecoregions1@data$Rar90SP[i]<-out$iNextEst[which.min(abs(out$iNextEst$SC-0.9)),"qD"]
+  ecoregions1@data$Rar90SP_Low[i]<-out$iNextEst[which.min(abs(out$iNextEst$SC-0.9)),"qD.LCL"]
+  ecoregions1@data$Rar90SP_Up[i]<-out$iNextEst[which.min(abs(out$iNextEst$SC-0.9)),"qD.UCL"]
+  
+  
+  centroid<-gCentroid(awgs84, byid = T)
+  ecoregions1@data$Lat[i]<-centroid@coords[,2]
+  ecoregions1@data$Lon[i]<-centroid@coords[,1]
+  
+  print(i)
+  mamms<-mammal[awgs84,]
+  ecoregions1@data$HostS[i]<-length((unique(mamms@data$binomial)))
+  ecoregions.data.Hostsp[[as.character(ecoregions1[i,]@data$ECO_NAME)]]<-unique(mamms@data$binomial)
+  
+  
+  mat1<-data.frame(sp=c(unique(as.character(mamms@data$genus)),unique(b$Host_Genus1)), community= c(rep("All",length(unique(mamms@data$genus))), rep("Sampled", length(unique(b$Host_Genus1)))))
+  site.sp.quad <-  dcast(mat1, community~sp,length) 
+  
+  
+  ecoregions1@data$H.S.Cov[i]<-betadiver(site.sp.quad, "w")
+  print(i)
+  
+  climate<-raster::extract(bios,awgs84)
+  ecoregions1@data$Temperature[i]<-mean(climate[[1]][,1],na.rm=T)
+  ecoregions1@data$Precipitation[i]<-mean(climate[[1]][,3],na.rm=T)
+  ecoregions1@data$TemperatureSeasonality[i]<-mean(climate[[1]][,2],na.rm=T)
+  ecoregions1@data$PrecipitationSeasonality[i]<-mean(climate[[1]][,4],na.rm=T)
+  
+  
+  print(i)
+}
+
+
+ecoregions1@data$P_host_sampled<-ecoregions1@data$Host_S_UniqueTax / ecoregions1@data$HostS
+ecowgs84<-spTransform(ecoregions1,wgs84)
+writeSpatialShape(ecowgs84,"C:/Users/seboc/Box/Parasite_S_gradients_NA/Ecoregions_Sep27_wgs84.shp")
+
+hist(ecoregions1@data$SampleCoverage)
+hist(ecoregions1@data$N_uniqueTax)
+hist(ecoregions1@data$HostS)
+ecoregions1@data[ecoregions1@data$P_host_sampled>1,]
+hist(ecoregions1@data$estimator_asym)
+hist(ecoregions1@data$Rarified200)
+hist(ecoregions1@data$P_host_sampled)
+ecoregions.data.SampHost[["Bering Sea And Aleutian Islands"]]
+
+
+
+plot(ecoregions1@data$N_uniqueTax,ecoregions1@data$SampleCoverage)
+plot(ecoregions1@data$P_host_sampled,ecoregions1@data$SampleCoverage)
+plot(ecoregions1@data$P_host_sampled,ecoregions1@data$SampleCoverage)
+plot(ecoregions1@data$N_uniqueTax,ecoregions1@data$estimator_asym)
+plot(ecoregions1@data$Rarified200,ecoregions1@data$estimator_asym)
+
+
+writeOGR(obj=ecoregions1, dsn="E:/Parasitology_Databases/DataAnalysis/SIG/Ecoregions", layer="Ecoregions_J7",driver="ESRI Shapefile") # this is in geographical projection
+
+
+save(ecoregions.data.parasite, file="C:/Users/seboc/Box/Parasite_S_gradients_NA/Ecorregions_All_Mammals_Parasites.r")
+save(ecoregions.data.SampHost, file="C:/Users/seboc/Box/Parasite_S_gradients_NA/Ecorregions_Sampled_Mammals.r")
+save( ecoregions.data.Hostsp, file="C:/Users/seboc/Box/Parasite_S_gradients_NA/Ecorregions_All_MammalS_occ.r")
+
+
+
+plot(ecoregions1$Lat[ecoregions1$N_uniqueTax>199 & ecoregions1$Host_S_UniqueTax>10],(ecoregions1$estimator_asym[ecoregions1$N_uniqueTax>199& ecoregions1$Host_S_UniqueTax>10]/ecoregions1$EcoRegionArea[ecoregions1$N_uniqueTax>199& ecoregions1$Host_S_UniqueTax>10])
+plot(ecoregions1$N_uniqueTax,ecoregions1$Ntest)
+######################################### Only Rodents#########################
+
+He<-He[He$Host.Order== "Carnivora" ,]
+mammal<-mammal[mammal$order_=="CARNIVORA",]
+
+ecoregions1@data$N<-NA
+ecoregions1@data$Host_S<-NA
+ecoregions1@data$N_uniqueTax<-NA
+ecoregions1@data$Host_S_UniqueTax<-NA
+ecoregions1@data$observed<-NA
+ecoregions1@data$Rarified200<-NA
+ecoregions1@data$Rarified200_Lower<-NA
+ecoregions1@data$Rarified200_Uper<-NA
+ecoregions1@data$Rar90SP<-NA
+ecoregions1@data$Rar90SP_Low<-NA
+ecoregions1@data$Rar90SP_Up<-NA
+ecoregions1@data$estimator_asym<-NA
+ecoregions1@data$asym_s.e.<-NA
+ecoregions1@data$asym_Lower<-NA
+ecoregions1@data$asym_Uper<-NA
+ecoregions1@data$SampleCoverage<-NA
+ecoregions1@data$Ntest<-NA
+ecoregions1@data$Lat<-NA
+ecoregions1@data$Lon<-NA
+ecoregions1@data$HostS<-NA
+ecoregions1@data$H.S.Cov<-NA  ### Host sample coverage
+
+ecoregions.data.parasite<-list(NULL)
+ecoregions.data.SampHost<-list(NULL)
+ecoregions.data.Hostsp<-list(NULL)
+
+i<-55
+for (i in 1:length(ecoregions1)){
+  a<-He[ecoregions1[i,],]
+  if(length(a)<50){next}
+  awgs84<-spTransform(ecoregions1[i,],wgs84)
+  b<-a@data
+  
+  
+  
+  ecoregions1@data$N[i]<-length(b[,1])
+  ecoregions1@data$Host_S[i]<-length(unique(b$Corrected_Host_name))
+  
+  
+  speciesdata<- b[!is.na(b$S_P_Species),]
+  genus<- b[which(is.na(b$S_P_Species)),]
+  genussp<-unique(speciesdata$S_P_Genus)
+  uniquegenus<-genus[!genus$S_P_Genus %in%genussp,]
+  
+  b<-rbind(speciesdata,uniquegenus)
+  
+  ecoregions1@data$N_uniqueTax[i]<-length(b[,1])
+  ecoregions1@data$Host_S_UniqueTax[i]<-length(unique(b$Corrected_Host_name))
+  
+  samp=table(b$Parasite_binomial_stadardized_slg)
+  
+  
+  
+ ecoregions.data.parasite[[as.character(ecoregions1[i,]@data$ECO_NAME)]]<-samp
+ ecoregions.data.SampHost[[as.character(ecoregions1[i,]@data$ECO_NAME)]]<-table(b$Corrected_Host_name)
+ out <- iNEXT(as.vector(samp), q=0, datatype="abundance",size=c(100,200,300,400,500))
+  
+  ecoregions1@data$observed[i]<-out$DataInfo$S.obs
+  ecoregions1@data$SampleCoverage[i]<-out$DataInfo$SC
+  ecoregions1@data$Ntest[i]<-out$DataInfo$n
+  
+  
+  
+  ecoregions1@data$Rarified200[i]<-out$iNextEst$qD[out$iNextEst$m==200]
+  ecoregions1@data$Rarified200_Lower[i]<-out$iNextEst$qD.LCL[out$iNextEst$m==200]
+  ecoregions1@data$Rarified200_Uper[i]<-out$iNextEst$qD.UCL[out$iNextEst$m==200]
+  
+  ecoregions1@data$estimator_asym[i]<-out$AsyEst[1,"Estimator"]
+  ecoregions1@data$asym_s.e.[i]<-out$AsyEst[1,"Est_s.e."]
+  ecoregions1@data$asym_Lower[i]<-out$AsyEst[1,"95% Lower"]
+  ecoregions1@data$asym_Uper[i]<-out$AsyEst[1,"95% Upper"]
+  
+  ecoregions1@data$Rar90SP[i]<-out$iNextEst[which.min(abs(out$iNextEst$SC-0.9)),"qD"]
+  ecoregions1@data$Rar90SP_Low[i]<-out$iNextEst[which.min(abs(out$iNextEst$SC-0.9)),"qD.LCL"]
+  ecoregions1@data$Rar90SP_Up[i]<-out$iNextEst[which.min(abs(out$iNextEst$SC-0.9)),"qD.UCL"]
+  
+  
+  centroid<-gCentroid(awgs84, byid = T)
+  ecoregions1@data$Lat[i]<-centroid@coords[,2]
+  ecoregions1@data$Lon[i]<-centroid@coords[,1]
+  
+  print(i)
+  mamms<-mammal[awgs84,]
+  ecoregions1@data$HostS[i]<-length((unique(mamms@data$binomial)))
+  ecoregions.data.Hostsp[[as.character(ecoregions1[i,]@data$ECO_NAME)]]<-unique(mamms@data$binomial)
+  
+  
+  mat1<-data.frame(sp=c(unique(as.character(mamms@data$genus)),unique(b$Host_Genus1)), community= c(rep("All",length(unique(mamms@data$genus))), rep("Sampled", length(unique(b$Host_Genus1)))))
+  site.sp.quad <-  dcast(mat1, community~sp,length) 
+  
+  
+  ecoregions1@data$H.S.Cov[i]<-betadiver(site.sp.quad)
+  print(i)
+  
+ 
+  
+  
+  print(i)
+}
+save(ecoregions.data.parasite, file="C:/Users/seboc/Box/Parasite_S_gradients_NA/Ecorregions_Carnivores_Parasites.r")
+save(ecoregions.data.SampHost, file="C:/Users/seboc/Box/Parasite_S_gradients_NA/Ecorregions_Sampled_Carnivores.r")
+save( ecoregions.data.Hostsp, file="C:/Users/seboc/Box/Parasite_S_gradients_NA/Ecorregions_Carnivores_occ.r")
+
+writeSpatialShape(ecoregions1,"C:/Users/seboc/Box/Parasite_S_gradients_NA/Ecoregions_Sep27_wgs84_Carnivores.shp")
