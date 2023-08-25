@@ -34,7 +34,7 @@ plot(EA3)
 
 
 
-x<-read.csv("C:/Users/seboc/Box/Parasite_S_gradients_NA/Final_Parasite_Database_SLG_namesSep2022.csv")
+x<-read.csv("Final_Parasite_Database_September2022.csv")
 x<-separate(x,"Parasite_binomial_stadardized_slg", sep=" ", into =c("S_P_Genus","S_P_Species"),remove = F)
 x<-separate(x,"Corrected_Host_name", sep=" ", into =c("Host_Genus1","Host_Species1"),remove = F)
 
